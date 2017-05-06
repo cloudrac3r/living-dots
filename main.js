@@ -63,7 +63,7 @@ function Dot(x, y, team) {
                     bestDistance = distance;
                     target = d;
                     targetType = "ola";
-                } else if (d.life <= (maxLife/5) && targetType != "ola") {
+                } else if (d.life <= (maxLife/5) && targetType != "ola" && d.team != this.team) {
                     bestDistance = distance;
                     target = d;
                     targetType = "enemy";
