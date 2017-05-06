@@ -17,16 +17,37 @@ function yes(character, count) {
     return string;
 }
 
+function map(value, inMin, inMax, outMin, outMax) {
+    return (value-inMin) * (outMax-outMin) / (inMax-inMin) + outMin;
+}
+
 function delay(ms) {
     sleep.msleep(ms);
 }
 
+function genSuperArray(size) { // An array of arrays.
+    let array = [];
+    for (let i = 0; i < size; i++) {
+        array.push([]);
+    }
+    return array;
+}
+
 // === GLOBALS & CONSTANTS ===
 
+let nextID = 0;
+let teams = 2;
 let dots = [];
-const maxLife = 150;
+let messages = genSuperArray(teams);
+
+const idleLifeDecrease = 1;
+const moveLifeDecrease = 10;
+const moveLifeThreshold = 150;
+const panicLifeThreshold = 220;
+const maxLife = 500;
+const olaPower = 50;
+
 const seekDistance = 6;
-const olaPower = 15;
 const sizeX = 15;
 const sizeY = 15;
 
@@ -35,6 +56,7 @@ const sizeY = 15;
 function Dot(x, y, team) {
     this.x = x;
     this.y = y;
+    this.id = getNewID();
     this.team = team; // Team number or 0 for ola
     this.life = maxLife;
     this.age = 0;
@@ -50,26 +72,31 @@ function Dot(x, y, team) {
         this.team = 0;
     }
 
-    this.idle = function() {
-        this.age++;
-        // Track nearest ola
-        let bestDistance = seekDistance; // Closest distance so far
-        let target; // Closest tracked object so far
-        let targetType; // Type of closest object
+    this.prepare = function() {
+        let action = {ola: {object: undefined, priority: 0, force: false}, enemy: {object: undefined, priority: 0, force: false}};
+        // Find nearest ola
+        let bestDistance = seekDistance*2; // Closest distance so far
         for (let d of dots) {
-            let distance = Math.sqrt((d.x - this.x)**2 + (d.y - this.y)**2); // Pythagorean distance to object
-            if (distance <= seekDistance && (distance <= bestDistance || (d.team == 0 && targetType == "enemy"))) { // Logic?
-                if (d.team == 0) {
-                    bestDistance = distance;
-                    target = d;
-                    targetType = "ola";
-                } else if (d.life <= (maxLife/5) && targetType != "ola" && d.team != this.team) {
-                    bestDistance = distance;
-                    target = d;
-                    targetType = "enemy";
-                }
+            let pyDistance = Math.sqrt((d.x - this.x)**2 + (d.y - this.y)**2); // Pythagorean distance to object
+            let txDistance = Math.abs(d.x - this.x) + Math.abs(d.y - this.y); // Taxi distance to object
+            if (pyDistance <= seekDistance && txDistance <= bestDistance && d.team == 0) { // If an ola is close enough
+                bestDistance = txDistance;
+                action.ola.object = d;
             }
         }
+        if (!action.ola.object) { // If an ola was found
+            let lifeOnArrival = this.life - (idleLifeDecrease+moveLifeDecrease)*bestDistance;
+            action.ola.priority = map(this.life, panicLifeThreshold, maxLife, 100, 10);
+            if (lifeOnArrival <= moveLifeThreshold) {
+                action.ola.priority = 0;
+            } else if (lifeOnArrival <= panicLifeThreshold) {
+                action.ola.force = true;
+                action.ola.priority = 100;
+            }
+        }
+
+        /* === OLD CODE ===
+
         if (targetType == "ola" || targetType == "enemy") { //TODO: Replace IF with desicion CASE
             this.life--; // Subtract life due to movement
             let newX = this.x;
@@ -113,7 +140,11 @@ function Dot(x, y, team) {
         if (this.x < 0) this.x = 0; // Prevent moving out of bounds
         if (this.x >= sizeX) this.x = sizeX-1;
         if (this.y < 0) this.y = 0;
-        if (this.y >= sizeY) this.y = sizeY-1;
+        if (this.y >= sizeY) this.y = sizeY-1; */
+    }
+    this.act() {
+        this.age++;
+        this.life -= idleLifeDecrease;
     }
 }
 
@@ -124,14 +155,6 @@ function createDot(x, y, team) {
     for (let i of dots) if (i.x == x && i.y == y) success = false;
     if (success) dots.push(new Dot(x, y, team));
     return success;
-}
-
-function getSpace(x, y) {
-    let result;
-    for (let d of dots) {
-        if (d.x == x && d.y == y) result = d;
-    }
-    return result;
 }
 
 function convertDirection(x, y, direction) {
@@ -149,6 +172,27 @@ function convertDirection(x, y, direction) {
     case 3:
         result.x--;
         break;
+    }
+    return result;
+}
+
+function getDotByID(id) { // Get a dot object by its ID
+    let result;
+    for (let d of dots) {
+        if (d.id == id) result = id;
+    }
+    return result;
+}
+
+function getNewID() { // Call to get a unique ID for any object
+    id++;
+    return id;
+}
+
+function getSpace(x, y) { // Get the contents of a grid square
+    let result;
+    for (let d of dots) {
+        if (d.x == x && d.y == y) result = d;
     }
     return result;
 }
@@ -205,8 +249,4 @@ while (true) {
         if (d.team != 0) d.idle();
     }
     if (Math.random() < 0.33) createDot(Math.floor(Math.random()*sizeX), Math.floor(Math.random()*sizeY), 0);
-    /*if (Math.random() < 0.05) {
-        let team = Math.floor(Math.random()*2+1);
-        if (counts[team] < 3) createDot(Math.floor(Math.random()*10), Math.floor(Math.random()*10), team);
-    }*/
 }
