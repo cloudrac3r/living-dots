@@ -35,13 +35,14 @@ function genSuperArray(size) { // An array of arrays.
 
 // === GLOBALS & CONSTANTS ===
 
+let actionsLogged = false;
+let dots = [];
 let nextID = 0;
 let teams = 2;
-let dots = [];
 let messages = genSuperArray(teams);
 
 const idleLifeDecrease = 1;
-const moveLifeDecrease = 10;
+const moveLifeDecrease = 5;
 const moveLifeThreshold = 50;
 const panicLifeThreshold = 120;
 const attackLifeThreshold = 300;
@@ -49,7 +50,7 @@ const maxLife = 500;
 const olaPower = 50;
 const startLife = 450;
 
-const seekDistance = 6;
+const seekDistance = 6.5;
 const sizeX = 15;
 const sizeY = 15;
 
@@ -78,35 +79,44 @@ function Dot(x, y, team) {
     }
 
     this.prepare = function() {
-        // Find nearby objects
-        for (let d of dots) {
-            let thisAction = {id: this.id, targetid: undefined, targetTeam: undefined, priority: 0, force: false};
-            let pyDistance = Math.sqrt((d.x - this.x)**2 + (d.y - this.y)**2); // Pythagorean distance to object
-            let txDistance = Math.abs(d.x - this.x) + Math.abs(d.y - this.y); // Taxi distance to object
-            let lifeOnArrival = this.life - (idleLifeDecrease+moveLifeDecrease)*txDistance;
-            if (pyDistance <= seekDistance) {
-                if (d.team == 0) {
-                    thisPriority = map(lifeOnArrival, panicLifeThreshold, maxLife, 100, 10); // Map arrival life to priority
-                    if (lifeOnArrival <= panicLifeThreshold) {
-                        thisAction.force = true; // Try to get there even if told not to
-                        thisAction.priority = 100;
+        if (this.life <= 0) {
+            // Dot died
+            this.die();
+        } else {
+            // Find nearby objects
+            for (let d of dots) {
+                let thisAction = {id: this.id, targetid: undefined, targetTeam: undefined, priority: 0, force: false};
+                let pyDistance = Math.sqrt((d.x - this.x)**2 + (d.y - this.y)**2); // Pythagorean distance to object
+                let txDistance = Math.abs(d.x - this.x) + Math.abs(d.y - this.y); // Taxi distance to object
+                let lifeOnArrival = this.life - (idleLifeDecrease+moveLifeDecrease)*txDistance;
+                if (pyDistance <= seekDistance) {
+                    let thisPriority = 0;
+                    if (d.team == 0) {
+                        //BROKEN! thisPriority = map(lifeOnArrival, panicLifeThreshold, maxLife, 100, 10); // Map arrival life to priority
+                        thisPriority = map(this.life, panicLifeThreshold, maxLife, 80, 0);
+                        thisPriority += map(txDistance, 0, seekDistance*2, 20, 0);
+                        if (debugMessages) console.log(this.id+": life: "+lifeOnArrival+", priority: "+thisPriority);
+                        if (lifeOnArrival <= panicLifeThreshold) {
+                            thisAction.force = true; // Try to get there even if told not to
+                            thisAction.priority = 100;
+                        }
+                    }/* else { //TODO: Deal with enemies
+                        thisPriority = map(lifeOnArrival, panicLifeThreshold, maxLife, 0, 50); // Map arrival life to priority
+                        thisPriority += map(d.life, moveLifeThreshold, maxLife, 50, 0); // Map enemy life to priority
+                        if (lifeOnArrival <= panicLifeThreshold) {
+                            thisAction.priority = 0; // If it's too dangerous, don't try
+                        }
+                    }*/
+                    if (lifeOnArrival <= moveLifeThreshold) {
+                        thisPriority = 0; // If it can't get there, don't try
                     }
-                }/* else { //TODO: Deal with enemies
-                    thisPriority = map(lifeOnArrival, panicLifeThreshold, maxLife, 0, 50); // Map arrival life to priority
-                    thisPriority += map(d.life, moveLifeThreshold, maxLife, 50, 0); // Map enemy life to priority
-                    if (lifeOnArrival <= panicLifeThreshold) {
-                        thisAction.priority = 0; // If it's too dangerous, don't try
+                    thisAction.priority = thisPriority;
+                    thisAction.targetid = d.id;
+                    thisAction.targetTeam = d.team;
+                    //if (d.team != this.team) { // Hack to prevent targeting teammates
+                    if (d.team == 0) { //TODO: Deal with enemies
+                        messages[this.team-1].push(thisAction);
                     }
-                }*/
-                if (lifeOnArrival <= moveLifeThreshold) {
-                    thisPriority = 0; // If it can't get there, don't try
-                }
-                thisAction.priority = thisPriority;
-                thisAction.targetid = d.id;
-                thisAction.targetTeam = d.team;
-                //if (d.team != this.team) { // Hack to prevent targeting teammates
-                if (d.team == 0) { //TODO: Deal with enemies
-                    messages[this.team-1].push(thisAction);
                 }
             }
         }
@@ -125,7 +135,7 @@ function Dot(x, y, team) {
         }
         let finalActions = {}; /* format = {4: {id: 4, targetid: 0, … }, 2: {id: 2, targetid: 5, … }}
                                            |id | action object        |  id | action object        | */
-        if (debugMessages) console.log(JSON.stringify(sortedActions, null, 2));
+        if (debugMessages && !actionsLogged) console.log(JSON.stringify(sortedActions, null, 2));
         for (let i = 0; i < sortedActions.length; i++) {
             if (finalActions[sortedActions[i].id] == undefined) { // No action for this object yet
                 let taken = false; // Has target already been taken?
@@ -133,21 +143,22 @@ function Dot(x, y, team) {
                     if (finalActions[f].targetid == sortedActions[i].targetid) taken = true;
                 }
                 if (!taken) { // Register target if available
-                    if (debugMessages) console.log(sortedActions[i].id+": targeting "+sortedActions[i].targetid);
+                    if (debugMessages && !actionsLogged) console.log(sortedActions[i].id+": targeting "+sortedActions[i].targetid);
                     finalActions[sortedActions[i].id] = sortedActions[i];
                 } else { // Log failure
-                    if (debugMessages) console.log(sortedActions[i].id+": not targeting "+sortedActions[i].targetid+" (target taken)");
+                    if (debugMessages && !actionsLogged) console.log(sortedActions[i].id+": not targeting "+sortedActions[i].targetid+" (target taken)");
                 }
             } else { // Object already has an action
-                if (debugMessages) console.log(sortedActions[i].id+": not targeting "+sortedActions[i].targetid+" (already have action)");
+                if (debugMessages && !actionsLogged) console.log(sortedActions[i].id+": not targeting "+sortedActions[i].targetid+" (already have action)");
             }
         }
         if (finalActions[this.id] != undefined) { // If target found,
             this.target = getDotByID(finalActions[this.id].targetid); // prepare to move to it
-            if (debugMessages) console.log(JSON.stringify(this.target));
+            if (debugMessages && !actionsLogged) console.log(JSON.stringify(this.target));
         } else { // otherwise,
             this.target = undefined; // mark no move
         }
+        actionsLogged = true;
     }
 
     this.act = function() {
@@ -233,7 +244,6 @@ function getSpace(x, y) { // Get the contents of a grid square
 }
 
 function moveTowards(currentX, currentY, targetX, targetY) { // Return a position one space away from the origin, in the direction of the target
-    if (debugMessages) console.log("trying to get from ("+currentX+", "+currentY+") to ("+targetX+", "+targetY+")");
     let newPos = {x: currentX, y: currentY};
     if (Math.random() < 0.5 && targetX != newPos.x) { // "Randomise" movement
         if (newPos.x > targetX) { // Try x first (maybe)
@@ -269,11 +279,23 @@ function printBoard() { //TODO: Make a better way of displaying stuff
                 if (d.x == j && d.y == i) {
                     found = true;
                     if (d.team == 0) {
-                        char = "♯ ";
+                        if (!debugMessages) {
+                            char = "♯ ";
+                        } else {
+                            char = pad(d.id, 2, "♯");
+                        }
                     } else if (d.team == 1) {
-                        char = pad(Math.floor(d.life/(maxLife/10)), 2, ".");
+                        if (!debugMessages) {
+                            char = pad(Math.floor(d.life/(maxLife/10)), 2, ".");
+                        } else {
+                            char = pad(d.id, 2, ".");
+                        }
                     } else if (d.team == 2) {
-                        char = pad(Math.floor(d.life/(maxLife/10)), 2, "@");
+                        if (!debugMessages) {
+                            char = pad(Math.floor(d.life/(maxLife/10)), 2, "@");
+                        } else {
+                            char = pad(d.id, 2, "@");
+                        }
                     }
                 }
             }
@@ -290,29 +312,31 @@ function printBoard() { //TODO: Make a better way of displaying stuff
 
 // === START ===
 
-/*
-createDot(1, 1, 1);
-createDot(2, 1, 1);
-createDot(1, 2, 1);
-createDot(13, 13, 2);
-createDot(12, 13, 2);
-createDot(13, 12, 2);
-createDot(3, 3, 0);
-createDot(5, 5, 0);
-createDot(7, 7, 0);
-createDot(9, 9, 0);
-createDot(11, 11, 0);
-*/
-
-createDot(4, 6, 0);
-createDot(5, 5, 0);
-createDot(4, 3, 1);
-createDot(6, 2, 1);
+if (!debugMessages) {
+    createDot(1, 1, 1);
+    createDot(2, 1, 1);
+    createDot(1, 2, 1);
+    createDot(13, 13, 2);
+    createDot(12, 13, 2);
+    createDot(13, 12, 2);
+    createDot(3, 3, 0);
+    createDot(5, 5, 0);
+    createDot(7, 7, 0);
+    createDot(9, 9, 0);
+    createDot(11, 11, 0);
+} else {
+    createDot(4, 6, 0);
+    createDot(5, 5, 0);
+    createDot(4, 3, 1);
+    createDot(6, 2, 1);
+}
 
 while (true) {
     printBoard();
-    delay(1500);
-    let messages = genSuperArray(teams);
+    delay(600);
+    messages.length = 0;
+    messages = genSuperArray(teams);
+    actionsLogged = false;
     for (let d of dots) {
         if (d.team != 0) d.prepare();
     }
@@ -322,5 +346,9 @@ while (true) {
     for (let d of dots) {
         if (d.team != 0) d.act();
     }
-    if (Math.random() < 0.20) createDot(Math.floor(Math.random()*sizeX), Math.floor(Math.random()*sizeY), 0);
+    let olaCount = 0;
+    for (let d of dots) {
+        if (d.team == 0) olaCount++;
+    }
+    if (Math.random() < 0.33 || olaCount == 0) createDot(Math.floor(Math.random()*sizeX), Math.floor(Math.random()*sizeY), 0);
 }
